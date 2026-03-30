@@ -253,7 +253,7 @@ export default async function Home() {
             Running on Next.js {serverInfo.nextVersion} | Rendered at:{" "}
             {new Date().toISOString()}
             <br></br>
-            made by antu
+            made by Antu Saha
           </p>
         </footer>
       </main>
