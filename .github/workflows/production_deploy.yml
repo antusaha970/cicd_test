@@ -52,6 +52,10 @@ jobs:
           echo "Executing remote deployment commands..."
           # 2. SSH into the server and execute the swap
           ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            # 1. FORCE LOAD THE NODE ENVIRONMENT
+            # This loads NVM and adds npm/pm2 to the system path for this session
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             # DEFINE YOUR EXACT PATH HERE
             APP_DIR="/home/ubuntu/cicd_test"
             
