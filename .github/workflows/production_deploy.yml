@@ -1,0 +1,80 @@
+name: Production Deployment (Next.js to EC2)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build, Package, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # --- PHASE 1: CONTINUOUS INTEGRATION (CI) ---
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.1" # Must match your EC2 Node version
+          cache: "npm"
+
+      - name: Install All Dependencies
+        run: npm ci
+
+      - name: Compile Next.js Build
+        run: npm run build
+
+      # --- PHASE 2: PACKAGING ---
+      - name: Compress Production Artifacts
+        # We only package what is strictly required to run the app.
+        # We leave behind raw source code, tests, and heavy node_modules.
+        run: tar -czf deploy.tar.gz .next public package.json package-lock.json next.config.mjs
+        # Note: If your config is next.config.js instead of .mjs, update the line above.
+
+      # --- PHASE 3: CONTINUOUS DEPLOYMENT (CD) ---
+      - name: Configure SSH Agent
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Execute Secure Transfer & PM2 Restart
+        run: |
+          echo "Initiating artifact transfer..."
+          # 1. Push the compressed artifact to a temporary folder on the EC2
+          scp -i ~/.ssh/id_rsa deploy.tar.gz ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/deploy.tar.gz
+
+          echo "Executing remote deployment commands..."
+          # 2. SSH into the server and execute the swap
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            # DEFINE YOUR EXACT PATH HERE
+            APP_DIR="/home/ubuntu/cicd_test"
+            
+            # Ensure directory exists and navigate to it
+            mkdir -p $APP_DIR
+            cd $APP_DIR
+            
+            # Unpack the new build directly over the old files
+            tar -xzf /tmp/deploy.tar.gz -C $APP_DIR
+            
+            # Install ONLY production dependencies (ignores devDependencies)
+            npm ci --omit=dev
+            
+            # Restart the PM2 process gracefully
+            # Replace 'my-next-app' with your actual PM2 process name
+            pm2 restart cicd_test --update-env
+            
+            # Clean up the payload
+            rm /tmp/deploy.tar.gz
+            
+            echo "Deployment successful!"
+          EOF
+
+      - name: Purge SSH Key
+        if: always()
+        run: rm -f ~/.ssh/id_rsa
